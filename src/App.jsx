@@ -79,6 +79,7 @@ const I = ({ n, s=20 }) => {
     close:    <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>,
     refresh:  <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/></svg>,
     logout:   <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>,
+    print:    <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 01-2-2v-5a2 2 0 012-2h16a2 2 0 012 2v5a2 2 0 01-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>,
   };
   return m[n] || null;
 };
@@ -355,7 +356,7 @@ export default function App() {
         @keyframes spin{to{transform:rotate(360deg)}}
         .card{background:#0f1623;border:1px solid #1a2235;border-radius:16px;padding:18px;animation:fadeIn 0.25s ease}
         .field{display:flex;flex-direction:column;gap:6px}
-        .field label{font-size:11px;font-weight:600;color:#6b7280;letter-spacing:0.07em;text-transform:uppercase}
+        .field label{font-size:11px;font-weight:700;color:#94a3b8;letter-spacing:0.07em;text-transform:uppercase}
         .field input,.field select,.field textarea{background:#1a2235;border:1.5px solid #252f42;border-radius:10px;color:#e2e8f0;padding:11px 13px;font-size:14px;font-family:inherit;transition:border-color 0.2s;width:100%}
         .field input:focus,.field select:focus,.field textarea:focus{border-color:#f59e0b}
         .field select option{background:#1a2235}
@@ -369,7 +370,7 @@ export default function App() {
         .danger:hover{background:#7f1d1d44}
         .tag{background:#1a2235;border:1px solid #252f42;border-radius:7px;padding:3px 9px;font-size:11px;color:#94a3b8}
         .row{display:flex;justify-content:space-between;align-items:center;background:#131d2e;border-radius:12px;padding:12px 14px;gap:10px}
-        .st{font-size:11px;color:#6b7280;font-weight:600;letter-spacing:0.08em;text-transform:uppercase;margin-bottom:12px}
+        .st{font-size:12px;color:#94a3b8;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;margin-bottom:12px}
         .empty{text-align:center;padding:40px 20px;color:#4b5563}
         .div{height:1px;background:#1a2235;margin:12px 0}
       `}</style>
@@ -387,6 +388,7 @@ export default function App() {
             <button onClick={()=>setTab("config")} style={{ background:"#1a2235",border:"1.5px solid #252f42",borderRadius:10,padding:8,cursor:"pointer",color:tab==="config"?"#f59e0b":"#6b7280",display:"flex",alignItems:"center" }}>
               <I n="settings" s={18}/>
             </button>
+            <button onClick={()=>window.print()} title="Imprimir" style={{ background:"#1a2235",border:"1.5px solid #252f42",borderRadius:10,padding:8,cursor:"pointer",color:"#6b7280",display:"flex",alignItems:"center" }}><I n="print" s={18}/></button>
             <button onClick={handleLogout} title="Cerrar sesión" style={{ background:"#1a2235",border:"1.5px solid #252f42",borderRadius:10,padding:8,cursor:"pointer",color:"#6b7280",display:"flex",alignItems:"center" }}>
               <I n="logout" s={18}/>
             </button>
@@ -555,7 +557,7 @@ function NuevoTab({ sucursales, onSubmit, showToast }) {
       <div className="card" style={{ display:"flex",flexDirection:"column",gap:14 }}>
         <p className="st">Detalles</p>
         {needsOrigen&&(<div className="field"><label>Origen {errs.origen&&<span style={{ color:"#ef4444" }}>— {errs.origen}</span>}</label><select value={form.origen} onChange={e=>set("origen",e.target.value)}><option value="">Seleccionar...</option>{sucursales.filter(s=>s!=="Almacén Principal").map(s=><option key={s} value={s}>{s}</option>)}</select></div>)}
-        {needsDestino&&(<div className="field"><label>Destino {errs.destino&&<span style={{ color:"#ef4444" }}>— {errs.destino}</span>}</label><select value={form.destino} onChange={e=>set("destino",e.target.value)}><option value="">Seleccionar...</option>{sucursales.filter(s=>form.tipo==="traslado_tes"?s!=="Almacén Principal":s!==form.origen).map(s=><option key={s} value={s}>{s}</option>)}</select></div>)}
+        {needsDestino&&(<div className="field"><label>Destino {errs.destino&&<span style={{ color:"#ef4444" }}>— {errs.destino}</span>}</label><select value={form.destino} onChange={e=>set("destino",e.target.value)}><option value="">Seleccionar...</option>{sucursales.filter(s=>(form.tipo==="traslado_tes"||form.tipo==="traslado_directo")?s!=="Almacén Principal"&&s!==form.origen:s!==form.origen).map(s=><option key={s} value={s}>{s}</option>)}</select></div>)}
         <div className="field"><label>Artículo {errs.articulo&&<span style={{ color:"#ef4444" }}>— {errs.articulo}</span>}</label><input type="text" placeholder="Nombre del artículo..." value={form.articulo} onChange={e=>set("articulo",e.target.value)}/></div>
         <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:12 }}>
           <div className="field"><label>Cantidad {errs.cantidad&&<span style={{ color:"#ef4444" }}>— {errs.cantidad}</span>}</label><input type="number" min="1" value={form.cantidad} onChange={e=>set("cantidad",e.target.value)}/></div>
