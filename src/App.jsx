@@ -6,7 +6,7 @@
 const SUPABASE_URL = "https://zbxoskebjsoronileppj.supabase.co";
 const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InpieG9za2VianNvcm9uaWxlcHBqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzk4MjIxODEsImV4cCI6MjA5NTM5ODE4MX0.olPfHRTUaOGNv0a_n0ZlFJxW_kUNeFtMFluzrdjy95M";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 
 // ─── SUPABASE CLIENT ──────────────────────────────────────────
 const sb = {
@@ -502,7 +502,7 @@ function ArticuloBuscador({ sucursalNombre, inventario, sucByName, value, onChan
   const [q, setQ] = useState(value||"");
   const [open, setOpen] = useState(false);
   const [confirmar, setConfirmar] = useState(null); // { articulo, enOtra: [{sucursal,item}] }
-  const ref = React.useRef();
+  const ref = useRef();
 
   const sucId = sucByName[sucursalNombre];
   const itemsLocal = sucId ? (inventario[sucId]||[]) : [];
@@ -547,7 +547,7 @@ function ArticuloBuscador({ sucursalNombre, inventario, sucByName, value, onChan
     setConfirmar(null);
   };
 
-  React.useEffect(() => {
+  useEffect(() => {
     setQ(value||"");
   }, [value]);
 
