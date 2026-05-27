@@ -244,10 +244,12 @@ export default function App() {
     setLoading(true);
     try {
       const [sucs, inv, movs] = await Promise.all([
-        sb.get("sucursales", "?activa=eq.true&order=nombre"),
-        sb.get("inventario", "?order=articulo"),
-        sb.get("movimientos", "?order=created_at.desc&limit=200"),
-      ]);console.log("SUCURSALES:", sucs);
+  sb.get("sucursales", "?activa=eq.true&order=nombre"),
+  sb.get("inventario", "?order=articulo"),
+  sb.get("movimientos", "?order=created_at.desc&limit=200"),
+]);
+
+console.log("SUCURSALES:", sucs);
 console.log("INVENTARIO:", inv);
 console.log("MOVIMIENTOS:", movs);
       const map = {}; const byName = {};
