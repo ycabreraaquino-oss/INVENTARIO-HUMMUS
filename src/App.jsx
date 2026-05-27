@@ -14,10 +14,18 @@ const sb = {
   url: (table, qs="") => `${SUPABASE_URL}/rest/v1/${table}${qs}`,
 
   async get(table, qs="") {
-    const r = await fetch(this.url(table, qs), { headers:{...this.headers,"Prefer":"return=representation"} });
-    if (!r.ok) throw new Error(await r.text());
-    return r.json();
-  },
+  const r = await fetch(this.url(table, qs), {
+    headers:{
+      ...this.headers,
+      "Prefer":"return=representation",
+      "Range":"0-3000"
+    }
+  });
+
+  if (!r.ok) throw new Error(await r.text());
+
+  return r.json();
+},
   async post(table, body) {
     const r = await fetch(this.url(table), { method:"POST", headers:{...this.headers,"Prefer":"return=representation"}, body:JSON.stringify(body) });
     if (!r.ok) throw new Error(await r.text());
