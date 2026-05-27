@@ -245,7 +245,7 @@ export default function App() {
     try {
       const [sucs, inv, movs] = await Promise.all([
   sb.get("sucursales", "?activa=eq.true&order=nombre"),
-  sb.get("inventario", "?order=articulo&limit=3000"),
+sb.get("inventario", "?order=articulo&limit=3000"),
   sb.get("movimientos", "?order=created_at.desc&limit=200"),
 ]);
 
