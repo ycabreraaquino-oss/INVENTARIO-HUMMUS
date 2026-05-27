@@ -247,7 +247,9 @@ export default function App() {
         sb.get("sucursales", "?activa=eq.true&order=nombre"),
         sb.get("inventario", "?order=articulo"),
         sb.get("movimientos", "?order=created_at.desc&limit=200"),
-      ]);
+      ]);console.log("SUCURSALES:", sucs);
+console.log("INVENTARIO:", inv);
+console.log("MOVIMIENTOS:", movs);
       const map = {}; const byName = {};
       sucs.forEach(s=>{ map[s.id]=s.nombre; byName[s.nombre]=s.id; });
       setSucursales(sucs); setSucMap(map); setSucByName(byName);
