@@ -402,7 +402,7 @@ export default function App() {
 
       <div style={{ padding:"12px 14px 0" }}>
         {tab==="home"       && <HomeTab inventario={inventario} movimientos={movimientos} sucMap={sucMap} sucursales={sucursales} setTab={setTab} loading={loading}/>}
-        {tab==="nuevo"      && <NuevoTab sucursales={sucursales.map(s=>s.nombre)} onSubmit={addMovimiento} showToast={showToast}/>}
+        {tab==="nuevo"      && <NuevoTab sucursales={sucursales.map(s=>s.nombre)} onSubmit={addMovimiento} showToast={showToast} inventario={inventario} sucByName={sucByName}/>}
         {tab==="inventario" && <InvTab inventario={inventario} sucursales={sucursales} sucMap={sucMap} onSave={saveArticulo} onDelete={deleteArticulo} loading={loading}/>}
         {tab==="historial"  && <HistTab movimientos={movimientos} loading={loading}/>}
         {tab==="buscar"     && <BuscarTab inventario={inventario} sucMap={sucMap}/>}
@@ -498,7 +498,137 @@ function HomeTab({ inventario, movimientos, sucMap, sucursales, setTab, loading 
 }
 
 // ─── NUEVO MOVIMIENTO ─────────────────────────────────────────
-function NuevoTab({ sucursales, onSubmit, showToast }) {
+function ArticuloBuscador({ sucursalNombre, inventario, sucByName, value, onChange, onSelect, error }) {
+  const [q, setQ] = useState(value||"");
+  const [open, setOpen] = useState(false);
+  const [confirmar, setConfirmar] = useState(null); // { articulo, enOtra: [{sucursal,item}] }
+  const ref = React.useRef();
+
+  const sucId = sucByName[sucursalNombre];
+  const itemsLocal = sucId ? (inventario[sucId]||[]) : [];
+  const todosItems = Object.entries(inventario).flatMap(([sid, items]) =>
+    items.map(i => ({ ...i, _sucId: sid }))
+  );
+
+  const query = q.toLowerCase().trim();
+  const sugerencias = !query ? itemsLocal.slice(0, 8) :
+    itemsLocal.filter(i =>
+      i.articulo?.toLowerCase().includes(query) ||
+      i.codigo?.toLowerCase().includes(query)
+    ).slice(0, 10);
+
+  const enOtras = !query ? [] :
+    todosItems.filter(i =>
+      i._sucId !== sucId &&
+      (i.articulo?.toLowerCase().includes(query) || i.codigo?.toLowerCase().includes(query)) &&
+      !sugerencias.find(s => s.articulo?.toLowerCase() === i.articulo?.toLowerCase())
+    ).slice(0, 5);
+
+  const seleccionar = (item, forzar=false) => {
+    if (!forzar && item._sucId !== sucId && item._sucId !== undefined) {
+      // está en otra sucursal, no en la seleccionada
+      const otherSucs = todosItems.filter(i => i.articulo?.toLowerCase() === item.articulo?.toLowerCase() && i._sucId !== sucId);
+      if (otherSucs.length > 0) {
+        setConfirmar({ articulo: item.articulo, item });
+        setOpen(false);
+        return;
+      }
+    }
+    setQ(item.articulo);
+    onSelect(item);
+    setOpen(false);
+    setConfirmar(null);
+  };
+
+  const crearNuevo = () => {
+    onChange(q);
+    onSelect({ articulo: q, codigo:"", categoria:"Maquinaria de Cocina", marca:"S/N", estado:"Bueno", _nuevo: true });
+    setOpen(false);
+    setConfirmar(null);
+  };
+
+  React.useEffect(() => {
+    setQ(value||"");
+  }, [value]);
+
+  return (
+    <div style={{ position:"relative" }} ref={ref}>
+      <div style={{ position:"relative" }}>
+        <input
+          type="text"
+          placeholder={sucursalNombre ? "Buscar artículo..." : "Selecciona sucursal primero"}
+          value={q}
+          disabled={!sucursalNombre}
+          onChange={e => { setQ(e.target.value); onChange(e.target.value); setOpen(true); setConfirmar(null); }}
+          onFocus={() => setOpen(true)}
+          onBlur={() => setTimeout(()=>setOpen(false), 200)}
+          style={{ background:"#1a2235", border:`1.5px solid ${error?"#ef4444":"#252f42"}`, borderRadius:10, color:"#e2e8f0", padding:"11px 13px", fontSize:14, fontFamily:"inherit", width:"100%", outline:"none", transition:"border-color 0.2s", opacity:sucursalNombre?1:0.5 }}
+          onFocus2={e=>e.target.style.borderColor="#f59e0b"}
+        />
+        {q && <button onClick={()=>{ setQ(""); onChange(""); onSelect({}); }} style={{ position:"absolute",right:10,top:"50%",transform:"translateY(-50%)",background:"none",border:"none",color:"#6b7280",cursor:"pointer",fontSize:18,lineHeight:1 }}>×</button>}
+      </div>
+
+      {open && sucursalNombre && (sugerencias.length > 0 || enOtras.length > 0 || q.trim()) && (
+        <div style={{ position:"absolute",top:"100%",left:0,right:0,background:"#0f1623",border:"1.5px solid #252f42",borderRadius:12,zIndex:200,maxHeight:280,overflow:"auto",marginTop:4,boxShadow:"0 8px 32px #0008" }}>
+          {sugerencias.length > 0 && (
+            <>
+              <div style={{ fontSize:10,color:"#4b5563",fontWeight:700,letterSpacing:"0.08em",textTransform:"uppercase",padding:"10px 14px 6px" }}>En {sucursalNombre}</div>
+              {sugerencias.map((item,i) => (
+                <div key={i} onMouseDown={()=>seleccionar(item)} style={{ padding:"10px 14px",cursor:"pointer",borderBottom:"1px solid #1a2235",display:"flex",justifyContent:"space-between",alignItems:"center" }}
+                  onMouseEnter={e=>e.currentTarget.style.background="#1a2235"} onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
+                  <div>
+                    <div style={{ fontSize:13,fontWeight:600,color:"#e2e8f0" }}>{item.articulo}</div>
+                    <div style={{ fontSize:11,color:"#6b7280" }}>{item.categoria}{item.codigo?` · ${item.codigo}`:""}</div>
+                  </div>
+                  <span style={{ fontSize:13,fontWeight:700,color:"#f59e0b" }}>{item.cantidad} und.</span>
+                </div>
+              ))}
+            </>
+          )}
+          {enOtras.length > 0 && (
+            <>
+              <div style={{ fontSize:10,color:"#f59e0b",fontWeight:700,letterSpacing:"0.08em",textTransform:"uppercase",padding:"10px 14px 6px" }}>En otras sucursales</div>
+              {enOtras.map((item,i) => (
+                <div key={i} onMouseDown={()=>seleccionar(item)} style={{ padding:"10px 14px",cursor:"pointer",borderBottom:"1px solid #1a2235",display:"flex",justifyContent:"space-between",alignItems:"center",opacity:0.8 }}
+                  onMouseEnter={e=>e.currentTarget.style.background="#1a2235"} onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
+                  <div>
+                    <div style={{ fontSize:13,fontWeight:600,color:"#e2e8f0" }}>{item.articulo}</div>
+                    <div style={{ fontSize:11,color:"#f59e0b" }}>⚠ No está en {sucursalNombre}</div>
+                  </div>
+                  <span style={{ fontSize:13,fontWeight:700,color:"#f59e0b" }}>{item.cantidad} und.</span>
+                </div>
+              ))}
+            </>
+          )}
+          {q.trim() && sugerencias.length === 0 && (
+            <div onMouseDown={crearNuevo} style={{ padding:"12px 14px",cursor:"pointer",display:"flex",alignItems:"center",gap:10 }}
+              onMouseEnter={e=>e.currentTarget.style.background="#1a2235"} onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
+              <div style={{ width:28,height:28,background:"#f59e0b22",borderRadius:8,display:"flex",alignItems:"center",justifyContent:"center",color:"#f59e0b",fontSize:18 }}>+</div>
+              <div>
+                <div style={{ fontSize:13,fontWeight:600,color:"#f59e0b" }}>Crear "{q}"</div>
+                <div style={{ fontSize:11,color:"#6b7280" }}>Artículo nuevo</div>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {confirmar && (
+        <div style={{ background:"#1c1708",border:"1.5px solid #f59e0b44",borderRadius:12,padding:14,marginTop:8 }}>
+          <p style={{ fontSize:13,color:"#f59e0b",fontWeight:600,marginBottom:10 }}>⚠ "{confirmar.articulo}" no está en {sucursalNombre}</p>
+          <p style={{ fontSize:12,color:"#94a3b8",marginBottom:12 }}>¿Confirmas usar este artículo de todas formas? Se creará en {sucursalNombre} si no existe.</p>
+          <div style={{ display:"flex",gap:8 }}>
+            <button className="btn ghost" style={{ flex:1,padding:"8px",fontSize:12 }} onClick={()=>setConfirmar(null)}>Cancelar</button>
+            <button className="btn gold" style={{ flex:1,padding:"8px",fontSize:12 }} onClick={()=>seleccionar(confirmar.item, true)}>Confirmar</button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+
+function NuevoTab({ sucursales, onSubmit, showToast, inventario, sucByName }) {
   const init = { tipo:"compra_directa",origen:"",destino:"",articulo:"",cantidad:"1",categoria:"Maquinaria de Cocina",marca:"",estado:"Bueno",observaciones:"",fase:"salida",codigo:"" };
   const [form, setForm] = useState(init);
   const [errs, setErrs] = useState({});
@@ -558,7 +688,18 @@ function NuevoTab({ sucursales, onSubmit, showToast }) {
         <p className="st">Detalles</p>
         {needsOrigen&&(<div className="field"><label>Origen {errs.origen&&<span style={{ color:"#ef4444" }}>— {errs.origen}</span>}</label><select value={form.origen} onChange={e=>set("origen",e.target.value)}><option value="">Seleccionar...</option>{sucursales.filter(s=>s!=="Almacén Principal").map(s=><option key={s} value={s}>{s}</option>)}</select></div>)}
         {needsDestino&&(<div className="field"><label>Destino {errs.destino&&<span style={{ color:"#ef4444" }}>— {errs.destino}</span>}</label><select value={form.destino} onChange={e=>set("destino",e.target.value)}><option value="">Seleccionar...</option>{sucursales.filter(s=>(form.tipo==="traslado_tes"||form.tipo==="traslado_directo")?s!=="Almacén Principal"&&s!==form.origen:s!==form.origen).map(s=><option key={s} value={s}>{s}</option>)}</select></div>)}
-        <div className="field"><label>Artículo {errs.articulo&&<span style={{ color:"#ef4444" }}>— {errs.articulo}</span>}</label><input type="text" placeholder="Nombre del artículo..." value={form.articulo} onChange={e=>set("articulo",e.target.value)}/></div>
+        <div className="field">
+          <label>Artículo {errs.articulo&&<span style={{ color:"#ef4444" }}>— {errs.articulo}</span>}</label>
+          <ArticuloBuscador
+            sucursalNombre={form.tipo==="compra_directa"||(form.tipo==="traslado_tes"&&form.fase==="salida") ? form.destino : form.origen}
+            inventario={inventario}
+            sucByName={sucByName}
+            value={form.articulo}
+            error={!!errs.articulo}
+            onChange={v=>set("articulo",v)}
+            onSelect={item=>{ if(item.articulo){ set("articulo",item.articulo); if(item.codigo) set("codigo",item.codigo||""); if(item.categoria) set("categoria",item.categoria||"Maquinaria de Cocina"); if(item.marca) set("marca",item.marca||""); if(item.estado) set("estado",item.estado||"Bueno"); } }}
+          />
+        </div>
         <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:12 }}>
           <div className="field"><label>Cantidad {errs.cantidad&&<span style={{ color:"#ef4444" }}>— {errs.cantidad}</span>}</label><input type="number" min="1" value={form.cantidad} onChange={e=>set("cantidad",e.target.value)}/></div>
           <div className="field"><label>Estado</label><select value={form.estado} onChange={e=>set("estado",e.target.value)}>{ESTADOS.map(s=><option key={s} value={s}>{s}</option>)}</select></div>
