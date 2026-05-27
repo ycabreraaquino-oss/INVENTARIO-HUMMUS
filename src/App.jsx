@@ -218,16 +218,19 @@ export default function App() {
     setTimeout(()=>setToast(null), 4000);
   }, []);
 
-  const handleLogin = (data) => {
-    setSession(data);
-    localStorage.setItem("sb_session", JSON.stringify(data));
-  };
+ const handleLogin = (data) => {
+  setSession(data);
+  localStorage.setItem("sb_session", JSON.stringify(data));
+};
 
-  const handleLogout = async () => {
-    if (session?.access_token) await sb.logout(session.access_token);
-    setSession(null);
-    localStorage.removeItem("sb_session");
-  };
+ const handleLogout = async () => {
+  if (session?.access_token) {
+    await sb.logout(session.access_token);
+  }
+
+  setSession(null);
+  localStorage.removeItem("sb_session");
+};
 
   // Restore session on load
   useEffect(() => {
@@ -259,7 +262,17 @@ export default function App() {
       setLoading(false);
     }
   }, [showToast]);
+useEffect(() => {
+  const saved = localStorage.getItem("sb_session");
 
+  if (saved) {
+    try {
+      setSession(JSON.parse(saved));
+    } catch (e) {
+      console.error(e);
+    }
+  }
+}, []);
   useEffect(()=>{ if (session) loadAll(); }, [session, loadAll]);
 
   if (!session) return <LoginScreen onLogin={handleLogin} />;
