@@ -56,11 +56,13 @@ const CATEGORIAS = [
   "Tecnología/Oficina","Utilidades/Servicios","Logística/Manejo","Seguridad","Operativos"
 ];
 const ESTADOS = ["Bueno","Regular","Crítico","En Mantenimiento"];
+const RAZONES_BAJA = ["Dañado/Roto","Perdido","Vencido","Obsoleto","Robado","Donado","Otro"];
 const TIPOS = [
   { id:"compra_directa",   label:"Compra Directa",        desc:"Va directo a la sucursal",            icon:"🛒" },
   { id:"compra_tes",       label:"Compra a Almacén",       desc:"Entra al Almacén Principal",          icon:"📦" },
   { id:"traslado_directo", label:"Traslado Directo",       desc:"De sucursal A a sucursal B",          icon:"🔄" },
   { id:"traslado_tes",     label:"Traslado por Almacén",   desc:"Pasa por el Almacén Principal",       icon:"🏭" },
+  { id:"baja",             label:"Baja de Artículo",       desc:"Sacar del inventario",                icon:"🗑️" },
 ];
 
 // ─── ICONS ────────────────────────────────────────────────────
@@ -293,6 +295,7 @@ export default function App() {
         if (form.fase==="entrada") { await upsertItem(origenId, -qty); await upsertItem(almacenId, qty); }
         else { await upsertItem(almacenId, -qty); await upsertItem(destinoId, qty); }
       }
+      else if (form.tipo==="baja") { await upsertItem(origenId, -qty); }
       await loadAll();
       showToast("Movimiento registrado correctamente");
       return true;
@@ -352,7 +355,7 @@ export default function App() {
     if (tab === "historial") {
       rows.push(["Fecha","Tipo","Fase","Artículo","Cantidad","Origen","Destino","Observaciones"]);
       movimientos.forEach(m => {
-        const tipoL = { compra_directa:"Compra Directa",compra_tes:"Compra → Almacén",traslado_directo:"Traslado Directo",traslado_tes:"Traslado por Almacén" };
+        const tipoL = { compra_directa:"Compra Directa",compra_tes:"Compra → Almacén",traslado_directo:"Traslado Directo",traslado_tes:"Traslado por Almacén",baja:"Baja de Artículo" };
         const faseL = { entrada:"Entrada a Almacén",salida:"Salida de Almacén" };
         rows.push([
           new Date(m.created_at).toLocaleString("es-DO"),
@@ -481,7 +484,7 @@ function HomeTab({ inventario, movimientos, sucMap, sucursales, setTab, loading 
   const regulares  = allItems.filter(i=>i.estado==="Regular").length;
   const movHoy     = movimientos.filter(m=>new Date(m.created_at).toDateString()===new Date().toDateString()).length;
   const movSemana  = movimientos.filter(m=>{ const d=new Date(m.created_at); const now=new Date(); return (now-d)<7*86400000; }).length;
-  const tipoL      = { compra_directa:"Compra Directa",compra_tes:"Compra → Almacén",traslado_directo:"Traslado Directo",traslado_tes:"Traslado por Almacén" };
+  const tipoL      = { compra_directa:"Compra Directa",compra_tes:"Compra → Almacén",traslado_directo:"Traslado Directo",traslado_tes:"Traslado por Almacén",baja:"Baja de Artículo" };
   const fecha      = new Date().toLocaleDateString("es-DO",{weekday:"long",day:"numeric",month:"long"});
 
   return (
@@ -759,7 +762,7 @@ function ArticuloBuscador({ sucursalNombre, inventario, sucByName, value, onChan
 
 
 function NuevoTab({ sucursales, onSubmit, showToast, inventario, sucByName }) {
-  const init = { tipo:"compra_directa",origen:"",destino:"",articulo:"",cantidad:"1",categoria:"Maquinaria de Cocina",marca:"",estado:"Bueno",observaciones:"",fase:"salida",codigo:"" };
+  const init = { tipo:"compra_directa",origen:"",destino:"",articulo:"",cantidad:"1",categoria:"Maquinaria de Cocina",marca:"",estado:"Bueno",observaciones:"",fase:"salida",codigo:"",razon_baja:"Dañado/Roto" };
   const [form, setForm] = useState(init);
   const [errs, setErrs] = useState({});
   const [saving, setSaving] = useState(false);
@@ -773,6 +776,8 @@ function NuevoTab({ sucursales, onSubmit, showToast, inventario, sucByName }) {
     if (form.tipo==="traslado_directo"){ if (!form.origen) e.origen="Requerido"; if (!form.destino) e.destino="Requerido"; if (form.origen&&form.destino&&form.origen===form.destino) e.destino="≠ al origen"; }
     if (form.tipo==="traslado_tes"&&form.fase==="entrada"&&!form.origen) e.origen="Requerido";
     if (form.tipo==="traslado_tes"&&form.fase==="salida"&&!form.destino) e.destino="Requerido";
+    if (form.tipo==="baja"&&!form.origen) e.origen="Requerido";
+    if (form.tipo==="baja"&&(!form.articulo.trim())) e.articulo="Requerido";
     return e;
   };
   const submit = async()=>{
@@ -783,10 +788,10 @@ function NuevoTab({ sucursales, onSubmit, showToast, inventario, sucByName }) {
   if (done) return (
     <div style={{ display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",minHeight:320,gap:14,animation:"fadeIn 0.3s ease" }}>
       <div style={{ width:70,height:70,background:"#14532d",borderRadius:"50%",display:"flex",alignItems:"center",justifyContent:"center" }}><I n="check" s={34}/></div>
-      <p style={{ fontSize:20,fontWeight:700,color:"#22c55e",fontFamily:"'Space Grotesk',sans-serif" }}>¡Guardado en la nube!</p>
+      <p style={{ fontSize:20,fontWeight:700,color:"#22c55e",fontFamily:"'Space Grotesk',sans-serif" }}>{form.tipo==="baja"?"¡Baja registrada!":"¡Guardado en la nube!"}</p>
     </div>
   );
-  const needsOrigen=form.tipo==="traslado_directo"||(form.tipo==="traslado_tes"&&form.fase==="entrada");
+  const needsOrigen=form.tipo==="traslado_directo"||(form.tipo==="traslado_tes"&&form.fase==="entrada")||form.tipo==="baja";
   const needsDestino=form.tipo==="compra_directa"||form.tipo==="traslado_directo"||(form.tipo==="traslado_tes"&&form.fase==="salida");
   return (
     <div style={{ display:"flex",flexDirection:"column",gap:14,maxWidth:560,margin:"0 auto" }}>
@@ -842,7 +847,15 @@ function NuevoTab({ sucursales, onSubmit, showToast, inventario, sucByName }) {
           <div className="field"><label>Código Activo</label><input type="text" placeholder="G00XXX" value={form.codigo} onChange={e=>set("codigo",e.target.value)}/></div>
           <div className="field"><label>Observaciones</label><input type="text" placeholder="Opcional..." value={form.observaciones} onChange={e=>set("observaciones",e.target.value)}/></div>
         </div>
-        <button className="btn gold" style={{ width:"100%",marginTop:4 }} onClick={submit} disabled={saving}>
+        {form.tipo==="baja"&&(
+          <div className="field">
+            <label>Razón de Baja</label>
+            <select value={form.razon_baja} onChange={e=>set("razon_baja",e.target.value)}>
+              {RAZONES_BAJA.map(r=><option key={r} value={r}>{r}</option>)}
+            </select>
+          </div>
+        )}
+        <button className="btn gold" style={{ width:"100%",marginTop:4,background:form.tipo==="baja"?"linear-gradient(135deg,#ef4444,#b91c1c)":"linear-gradient(135deg,#f59e0b,#d97706)" }} onClick={submit} disabled={saving}>
           {saving?<><Spin size={18}/> Guardando...</>:"Registrar Movimiento"}
         </button>
       </div>
@@ -935,7 +948,7 @@ function ArticuloModal({ sucNombre, item, onSave, onClose }) {
 function HistTab({ movimientos, loading }) {
   const [filtTipo, setFiltTipo] = useState("");
   const [filtSuc, setFiltSuc]   = useState("");
-  const tipoL = { compra_directa:"Compra Directa",compra_tes:"Compra → Almacén",traslado_directo:"Traslado Directo",traslado_tes:"Traslado por Almacén" };
+  const tipoL = { compra_directa:"Compra Directa",compra_tes:"Compra → Almacén",traslado_directo:"Traslado Directo",traslado_tes:"Traslado por Almacén",baja:"Baja de Artículo" };
   const faseL = { entrada:"Entrada a Almacén",salida:"Salida de Almacén" };
   const allSucs = [...new Set(movimientos.flatMap(m=>[m.origen_nombre,m.destino_nombre].filter(Boolean)))].sort();
   const filtered = movimientos.filter(m=>{ if (filtTipo&&m.tipo!==filtTipo) return false; if (filtSuc&&m.origen_nombre!==filtSuc&&m.destino_nombre!==filtSuc) return false; return true; });
