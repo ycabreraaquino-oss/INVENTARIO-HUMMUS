@@ -14,18 +14,10 @@ const sb = {
   url: (table, qs="") => `${SUPABASE_URL}/rest/v1/${table}${qs}`,
 
   async get(table, qs="") {
-  const r = await fetch(this.url(table, qs), {
-    headers:{
-      ...this.headers,
-      "Prefer":"return=representation",
-      "Range":"0-3000"
-    }
-  });
-
-  if (!r.ok) throw new Error(await r.text());
-
-  return r.json();
-},
+    const r = await fetch(this.url(table, qs), { headers:{...this.headers,"Prefer":"count=none"} });
+    if (!r.ok) throw new Error(await r.text());
+    return r.json();
+  },
   async post(table, body) {
     const r = await fetch(this.url(table), { method:"POST", headers:{...this.headers,"Prefer":"return=representation"}, body:JSON.stringify(body) });
     if (!r.ok) throw new Error(await r.text());
@@ -226,19 +218,16 @@ export default function App() {
     setTimeout(()=>setToast(null), 4000);
   }, []);
 
- const handleLogin = (data) => {
-  setSession(data);
-  localStorage.setItem("sb_session", JSON.stringify(data));
-};
+  const handleLogin = (data) => {
+    setSession(data);
+    localStorage.setItem("sb_session", JSON.stringify(data));
+  };
 
- const handleLogout = async () => {
-  if (session?.access_token) {
-    await sb.logout(session.access_token);
-  }
-
-  setSession(null);
-  localStorage.removeItem("sb_session");
-};
+  const handleLogout = async () => {
+    if (session?.access_token) await sb.logout(session.access_token);
+    setSession(null);
+    localStorage.removeItem("sb_session");
+  };
 
   // Restore session on load
   useEffect(() => {
@@ -252,14 +241,10 @@ export default function App() {
     setLoading(true);
     try {
       const [sucs, inv, movs] = await Promise.all([
-  sb.get("sucursales", "?activa=eq.true&order=nombre"),
-sb.get("inventario", "?order=articulo"),
-  sb.get("movimientos", "?order=created_at.desc&limit=200"),
-]);
-
-console.log("SUCURSALES:", sucs);
-console.log("INVENTARIO:", inv);
-console.log("MOVIMIENTOS:", movs);
+        sb.get("sucursales", "?activa=eq.true&order=nombre"),
+        sb.get("inventario", "?order=articulo&limit=5000"),
+        sb.get("movimientos", "?order=created_at.desc&limit=200"),
+      ]);
       const map = {}; const byName = {};
       sucs.forEach(s=>{ map[s.id]=s.nombre; byName[s.nombre]=s.id; });
       setSucursales(sucs); setSucMap(map); setSucByName(byName);
@@ -274,17 +259,7 @@ console.log("MOVIMIENTOS:", movs);
       setLoading(false);
     }
   }, [showToast]);
-useEffect(() => {
-  const saved = localStorage.getItem("sb_session");
 
-  if (saved) {
-    try {
-      setSession(JSON.parse(saved));
-    } catch (e) {
-      console.error(e);
-    }
-  }
-}, []);
   useEffect(()=>{ if (session) loadAll(); }, [session, loadAll]);
 
   if (!session) return <LoginScreen onLogin={handleLogin} />;
@@ -787,44 +762,80 @@ function ArticuloBuscador({ sucursalNombre, inventario, sucByName, value, onChan
 
 
 function NuevoTab({ sucursales, onSubmit, showToast, inventario, sucByName }) {
-  const init = { tipo:"compra_directa",origen:"",destino:"",articulo:"",cantidad:"1",categoria:"Maquinaria de Cocina",marca:"",estado:"Bueno",observaciones:"",fase:"salida",codigo:"",razon_baja:"Dañado/Roto" };
-  const [form, setForm] = useState(init);
+  const initForm = { tipo:"compra_directa",origen:"",destino:"",fase:"salida",observaciones:"",razon_baja:"Dañado/Roto" };
+  const initItem = { articulo:"",cantidad:"1",categoria:"Maquinaria de Cocina",marca:"",estado:"Bueno",codigo:"" };
+  const [form, setForm] = useState(initForm);
+  const [currentItem, setCurrentItem] = useState(initItem);
+  const [items, setItems] = useState([]); // carrito
   const [errs, setErrs] = useState({});
+  const [itemErrs, setItemErrs] = useState({});
   const [saving, setSaving] = useState(false);
   const [done, setDone] = useState(false);
-  const set = (k,v)=>{ setForm(p=>({...p,[k]:v})); setErrs(e=>({...e,[k]:undefined})); };
-  const validate = ()=>{
+
+  const setF = (k,v)=>{ setForm(p=>({...p,[k]:v})); setErrs(e=>({...e,[k]:undefined})); };
+  const setI = (k,v)=>{ setCurrentItem(p=>({...p,[k]:v})); setItemErrs(e=>({...e,[k]:undefined})); };
+
+  const sucursalBuscador = form.tipo==="compra_tes" ? "Almacén Principal"
+    : form.tipo==="compra_directa"||(form.tipo==="traslado_tes"&&form.fase==="salida") ? form.destino
+    : form.origen;
+
+  const validateForm = ()=>{
     const e={};
-    if (!form.articulo.trim()) e.articulo="Requerido";
-    if (!form.cantidad||Number(form.cantidad)<1) e.cantidad="Mín 1";
     if (form.tipo==="compra_directa"&&!form.destino) e.destino="Requerido";
     if (form.tipo==="traslado_directo"){ if (!form.origen) e.origen="Requerido"; if (!form.destino) e.destino="Requerido"; if (form.origen&&form.destino&&form.origen===form.destino) e.destino="≠ al origen"; }
     if (form.tipo==="traslado_tes"&&form.fase==="entrada"&&!form.origen) e.origen="Requerido";
     if (form.tipo==="traslado_tes"&&form.fase==="salida"&&!form.destino) e.destino="Requerido";
     if (form.tipo==="baja"&&!form.origen) e.origen="Requerido";
-    if (form.tipo==="baja"&&(!form.articulo.trim())) e.articulo="Requerido";
     return e;
   };
-  const submit = async()=>{
-    const e=validate(); if (Object.keys(e).length){ setErrs(e); showToast("Completa los campos requeridos","error"); return; }
-    setSaving(true); const ok=await onSubmit(form); setSaving(false);
-    if (ok){ setDone(true); setTimeout(()=>{ setDone(false); setForm(init); setErrs({}); },2200); }
+
+  const addItem = ()=>{
+    const e={};
+    if (!currentItem.articulo.trim()) e.articulo="Requerido";
+    if (!currentItem.cantidad||Number(currentItem.cantidad)<1) e.cantidad="Mín 1";
+    if (Object.keys(e).length){ setItemErrs(e); return; }
+    setItems(prev=>[...prev, {...currentItem, cantidad:Number(currentItem.cantidad), _id:Date.now()}]);
+    setCurrentItem(initItem);
+    setItemErrs({});
   };
+
+  const removeItem = (id)=>{ setItems(prev=>prev.filter(i=>i._id!==id)); };
+
+  const submit = async()=>{
+    const e=validateForm();
+    if (Object.keys(e).length){ setErrs(e); showToast("Completa los campos requeridos","error"); return; }
+    if (items.length===0){ showToast("Agrega al menos un artículo","error"); return; }
+    setSaving(true);
+    let allOk = true;
+    for (const item of items) {
+      const payload = { ...form, ...item };
+      const ok = await onSubmit(payload);
+      if (!ok) { allOk = false; break; }
+    }
+    setSaving(false);
+    if (allOk){ setDone(true); setTimeout(()=>{ setDone(false); setForm(initForm); setItems([]); setCurrentItem(initItem); setErrs({}); },2500); }
+  };
+
   if (done) return (
     <div style={{ display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",minHeight:320,gap:14,animation:"fadeIn 0.3s ease" }}>
       <div style={{ width:70,height:70,background:"#14532d",borderRadius:"50%",display:"flex",alignItems:"center",justifyContent:"center" }}><I n="check" s={34}/></div>
-      <p style={{ fontSize:20,fontWeight:700,color:"#22c55e",fontFamily:"'Space Grotesk',sans-serif" }}>{form.tipo==="baja"?"¡Baja registrada!":"¡Guardado en la nube!"}</p>
+      <p style={{ fontSize:20,fontWeight:700,color:"#22c55e",fontFamily:"'Space Grotesk',sans-serif" }}>¡{items.length} artículo{items.length!==1?"s":""} guardado{items.length!==1?"s":""}!</p>
+      <p style={{ fontSize:13,color:"#6b7280" }}>Inventario actualizado en todos los dispositivos</p>
     </div>
   );
+
   const needsOrigen=form.tipo==="traslado_directo"||(form.tipo==="traslado_tes"&&form.fase==="entrada")||form.tipo==="baja";
   const needsDestino=form.tipo==="compra_directa"||form.tipo==="traslado_directo"||(form.tipo==="traslado_tes"&&form.fase==="salida");
+
   return (
     <div style={{ display:"flex",flexDirection:"column",gap:14,maxWidth:560,margin:"0 auto" }}>
+
+      {/* Tipo */}
       <div className="card">
         <p className="st">Tipo de Movimiento</p>
         <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:9 }}>
           {TIPOS.map(t=>(
-            <button key={t.id} onClick={()=>set("tipo",t.id)} style={{ background:form.tipo===t.id?"#1c1708":"#1a2235",border:`2px solid ${form.tipo===t.id?"#f59e0b":"#252f42"}`,borderRadius:12,padding:"12px 8px",cursor:"pointer",color:form.tipo===t.id?"#f59e0b":"#94a3b8",display:"flex",flexDirection:"column",alignItems:"center",gap:5,transition:"all 0.2s",fontFamily:"inherit" }}>
+            <button key={t.id} onClick={()=>{ setF("tipo",t.id); setItems([]); }} style={{ background:form.tipo===t.id?"#1c1708":"#1a2235",border:`2px solid ${form.tipo===t.id?"#f59e0b":"#252f42"}`,borderRadius:12,padding:"12px 8px",cursor:"pointer",color:form.tipo===t.id?"#f59e0b":"#94a3b8",display:"flex",flexDirection:"column",alignItems:"center",gap:5,transition:"all 0.2s",fontFamily:"inherit" }}>
               <span style={{ fontSize:22 }}>{t.icon}</span>
               <span style={{ fontSize:11,fontWeight:600,textAlign:"center",lineHeight:1.3 }}>{t.label}</span>
               <span style={{ fontSize:10,color:form.tipo===t.id?"#d97706":"#4b5563",textAlign:"center",lineHeight:1.3 }}>{t.desc}</span>
@@ -832,58 +843,88 @@ function NuevoTab({ sucursales, onSubmit, showToast, inventario, sucByName }) {
           ))}
         </div>
       </div>
+
+      {/* Fase traslado_tes */}
       {form.tipo==="traslado_tes"&&(
         <div className="card">
           <p className="st">Fase</p>
           <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:9 }}>
-            {[{v:"entrada",l:"Entrada al Almacén",ic:"⬇️",d:"Viene de sucursal"},{v:"salida",l:"Salida del Almacén",ic:"⬆️",d:"Va a sucursal"}].map(f=>(
-              <button key={f.v} onClick={()=>set("fase",f.v)} style={{ background:form.fase===f.v?"#0c1a2e":"#1a2235",border:`2px solid ${form.fase===f.v?"#60a5fa":"#252f42"}`,borderRadius:12,padding:"12px 8px",cursor:"pointer",color:form.fase===f.v?"#60a5fa":"#94a3b8",display:"flex",flexDirection:"column",alignItems:"center",gap:5,transition:"all 0.2s",fontFamily:"inherit" }}>
+            {[{v:"entrada",l:"Entrada al Almacén",ic:"⬇️"},{v:"salida",l:"Salida del Almacén",ic:"⬆️"}].map(f=>(
+              <button key={f.v} onClick={()=>setF("fase",f.v)} style={{ background:form.fase===f.v?"#0c1a2e":"#1a2235",border:`2px solid ${form.fase===f.v?"#60a5fa":"#252f42"}`,borderRadius:12,padding:"12px 8px",cursor:"pointer",color:form.fase===f.v?"#60a5fa":"#94a3b8",display:"flex",flexDirection:"column",alignItems:"center",gap:5,transition:"all 0.2s",fontFamily:"inherit" }}>
                 <span style={{ fontSize:22 }}>{f.ic}</span><span style={{ fontSize:11,fontWeight:600,textAlign:"center" }}>{f.l}</span>
               </button>
             ))}
           </div>
         </div>
       )}
-      <div className="card" style={{ display:"flex",flexDirection:"column",gap:14 }}>
-        <p className="st">Detalles</p>
-        {needsOrigen&&(<div className="field"><label>Origen {errs.origen&&<span style={{ color:"#ef4444" }}>— {errs.origen}</span>}</label><select value={form.origen} onChange={e=>set("origen",e.target.value)}><option value="">Seleccionar...</option>{sucursales.filter(s=>s!=="Almacén Principal").map(s=><option key={s} value={s}>{s}</option>)}</select></div>)}
-        {needsDestino&&(<div className="field"><label>Destino {errs.destino&&<span style={{ color:"#ef4444" }}>— {errs.destino}</span>}</label><select value={form.destino} onChange={e=>set("destino",e.target.value)}><option value="">Seleccionar...</option>{sucursales.filter(s=>(form.tipo==="traslado_tes"||form.tipo==="traslado_directo")?s!=="Almacén Principal"&&s!==form.origen:s!==form.origen).map(s=><option key={s} value={s}>{s}</option>)}</select></div>)}
+
+      {/* Origen / Destino */}
+      <div className="card" style={{ display:"flex",flexDirection:"column",gap:12 }}>
+        <p className="st">Ruta</p>
+        {needsOrigen&&(<div className="field"><label>{form.tipo==="baja"?"Sucursal":"Origen"} {errs.origen&&<span style={{ color:"#ef4444" }}>— {errs.origen}</span>}</label><select value={form.origen} onChange={e=>{ setF("origen",e.target.value); setItems([]); }}><option value="">Seleccionar...</option>{sucursales.filter(s=>s!=="Almacén Principal").map(s=><option key={s} value={s}>{s}</option>)}</select></div>)}
+        {needsDestino&&(<div className="field"><label>Destino {errs.destino&&<span style={{ color:"#ef4444" }}>— {errs.destino}</span>}</label><select value={form.destino} onChange={e=>{ setF("destino",e.target.value); setItems([]); }}><option value="">Seleccionar...</option>{sucursales.filter(s=>(form.tipo==="traslado_tes"||form.tipo==="traslado_directo")?s!=="Almacén Principal"&&s!==form.origen:s!==form.origen).map(s=><option key={s} value={s}>{s}</option>)}</select></div>)}
+        <div className="field"><label>Observaciones generales</label><input type="text" placeholder="Opcional..." value={form.observaciones} onChange={e=>setF("observaciones",e.target.value)}/></div>
+        {form.tipo==="baja"&&(<div className="field"><label>Razón de Baja</label><select value={form.razon_baja} onChange={e=>setF("razon_baja",e.target.value)}>{RAZONES_BAJA.map(r=><option key={r} value={r}>{r}</option>)}</select></div>)}
+      </div>
+
+      {/* Agregar artículos */}
+      <div className="card" style={{ display:"flex",flexDirection:"column",gap:12 }}>
+        <p className="st">Agregar Artículo</p>
         <div className="field">
-          <label>Artículo {errs.articulo&&<span style={{ color:"#ef4444" }}>— {errs.articulo}</span>}</label>
+          <label>Artículo {itemErrs.articulo&&<span style={{ color:"#ef4444" }}>— {itemErrs.articulo}</span>}</label>
           <ArticuloBuscador
-            sucursalNombre={form.tipo==="compra_directa"||(form.tipo==="traslado_tes"&&form.fase==="salida") ? form.destino : form.origen}
+            sucursalNombre={sucursalBuscador}
             inventario={inventario}
             sucByName={sucByName}
-            value={form.articulo}
-            error={!!errs.articulo}
-            onChange={v=>set("articulo",v)}
-            onSelect={item=>{ if(item.articulo){ set("articulo",item.articulo); if(item.codigo) set("codigo",item.codigo||""); if(item.categoria) set("categoria",item.categoria||"Maquinaria de Cocina"); if(item.marca) set("marca",item.marca||""); if(item.estado) set("estado",item.estado||"Bueno"); } }}
+            value={currentItem.articulo}
+            error={!!itemErrs.articulo}
+            onChange={v=>setI("articulo",v)}
+            onSelect={item=>{ if(item.articulo){ setI("articulo",item.articulo); if(item.codigo) setI("codigo",item.codigo||""); if(item.categoria) setI("categoria",item.categoria||"Maquinaria de Cocina"); if(item.marca) setI("marca",item.marca||""); if(item.estado) setI("estado",item.estado||"Bueno"); } }}
           />
         </div>
         <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:12 }}>
-          <div className="field"><label>Cantidad {errs.cantidad&&<span style={{ color:"#ef4444" }}>— {errs.cantidad}</span>}</label><input type="number" min="1" value={form.cantidad} onChange={e=>set("cantidad",e.target.value)}/></div>
-          <div className="field"><label>Estado</label><select value={form.estado} onChange={e=>set("estado",e.target.value)}>{ESTADOS.map(s=><option key={s} value={s}>{s}</option>)}</select></div>
+          <div className="field"><label>Cantidad {itemErrs.cantidad&&<span style={{ color:"#ef4444" }}>— {itemErrs.cantidad}</span>}</label><input type="number" min="1" value={currentItem.cantidad} onChange={e=>setI("cantidad",e.target.value)}/></div>
+          <div className="field"><label>Estado</label><select value={currentItem.estado} onChange={e=>setI("estado",e.target.value)}>{ESTADOS.map(s=><option key={s} value={s}>{s}</option>)}</select></div>
         </div>
         <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:12 }}>
-          <div className="field"><label>Categoría</label><select value={form.categoria} onChange={e=>set("categoria",e.target.value)}>{CATEGORIAS.map(c=><option key={c} value={c}>{c}</option>)}</select></div>
-          <div className="field"><label>Marca / Modelo</label><input type="text" placeholder="S/N" value={form.marca} onChange={e=>set("marca",e.target.value)}/></div>
+          <div className="field"><label>Categoría</label><select value={currentItem.categoria} onChange={e=>setI("categoria",e.target.value)}>{CATEGORIAS.map(c=><option key={c} value={c}>{c}</option>)}</select></div>
+          <div className="field"><label>Marca / Modelo</label><input type="text" placeholder="S/N" value={currentItem.marca} onChange={e=>setI("marca",e.target.value)}/></div>
         </div>
-        <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:12 }}>
-          <div className="field"><label>Código Activo</label><input type="text" placeholder="G00XXX" value={form.codigo} onChange={e=>set("codigo",e.target.value)}/></div>
-          <div className="field"><label>Observaciones</label><input type="text" placeholder="Opcional..." value={form.observaciones} onChange={e=>set("observaciones",e.target.value)}/></div>
-        </div>
-        {form.tipo==="baja"&&(
-          <div className="field">
-            <label>Razón de Baja</label>
-            <select value={form.razon_baja} onChange={e=>set("razon_baja",e.target.value)}>
-              {RAZONES_BAJA.map(r=><option key={r} value={r}>{r}</option>)}
-            </select>
-          </div>
-        )}
-        <button className="btn gold" style={{ width:"100%",marginTop:4,background:form.tipo==="baja"?"linear-gradient(135deg,#ef4444,#b91c1c)":"linear-gradient(135deg,#f59e0b,#d97706)" }} onClick={submit} disabled={saving}>
-          {saving?<><Spin size={18}/> Guardando...</>:"Registrar Movimiento"}
+        <div className="field"><label>Código Activo</label><input type="text" placeholder="G00XXX" value={currentItem.codigo} onChange={e=>setI("codigo",e.target.value)}/></div>
+        <button className="btn ghost" style={{ width:"100%" }} onClick={addItem}>
+          <I n="plus" s={16}/> Agregar al listado
         </button>
       </div>
+
+      {/* Listado de artículos agregados */}
+      {items.length>0&&(
+        <div className="card" style={{ display:"flex",flexDirection:"column",gap:10 }}>
+          <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center" }}>
+            <p className="st" style={{ marginBottom:0 }}>Artículos a registrar</p>
+            <span style={{ background:"#f59e0b22",color:"#f59e0b",border:"1px solid #f59e0b44",borderRadius:20,padding:"2px 10px",fontSize:12,fontWeight:700 }}>{items.length}</span>
+          </div>
+          {items.map((item,i)=>(
+            <div key={item._id} style={{ display:"flex",justifyContent:"space-between",alignItems:"center",background:"#131d2e",borderRadius:10,padding:"10px 12px" }}>
+              <div style={{ flex:1,minWidth:0 }}>
+                <div style={{ fontSize:13,fontWeight:600,color:"#e2e8f0",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}>{item.articulo}</div>
+                <div style={{ fontSize:11,color:"#6b7280",marginTop:2 }}>{item.categoria} · {item.marca||"S/N"}</div>
+              </div>
+              <div style={{ display:"flex",alignItems:"center",gap:10,flexShrink:0 }}>
+                <span style={{ fontSize:14,fontWeight:700,color:"#f59e0b" }}>{item.cantidad} und.</span>
+                <button onClick={()=>removeItem(item._id)} style={{ background:"#7f1d1d22",border:"1px solid #7f1d1d44",borderRadius:8,padding:"4px 8px",cursor:"pointer",color:"#f87171",fontSize:12 }}>✕</button>
+              </div>
+            </div>
+          ))}
+          <div style={{ borderTop:"1px solid #1a2235",paddingTop:10,display:"flex",justifyContent:"space-between",fontSize:12,color:"#94a3b8" }}>
+            <span>{items.length} artículo{items.length!==1?"s":""}</span>
+            <span style={{ color:"#f59e0b",fontWeight:700 }}>{items.reduce((s,i)=>s+i.cantidad,0)} unidades totales</span>
+          </div>
+          <button className="btn gold" style={{ width:"100%",background:form.tipo==="baja"?"linear-gradient(135deg,#ef4444,#b91c1c)":"linear-gradient(135deg,#f59e0b,#d97706)" }} onClick={submit} disabled={saving}>
+            {saving?<><Spin size={18}/> Guardando {items.length} artículos...</>:`Registrar ${items.length} artículo${items.length!==1?"s":""}`}
+          </button>
+        </div>
+      )}
+
     </div>
   );
 }
