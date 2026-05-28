@@ -270,13 +270,16 @@ export default function App() {
       const origenId  = form.origen  ? sucByName[form.origen]  : null;
       const destinoId = form.destino ? sucByName[form.destino] : null;
       const qty = Number(form.cantidad)||0;
+      const fechaISO = form.factura_fecha ? new Date(form.factura_fecha + "T12:00:00").toISOString() : new Date().toISOString();
       await sb.post("movimientos", {
         tipo:form.tipo, fase:form.fase||null, articulo:form.articulo,
         cantidad:qty, categoria:form.categoria, codigo:form.codigo||"",
         marca:form.marca||"S/N", estado:form.estado||"Bueno",
         origen_id:origenId, destino_id:destinoId,
         origen_nombre:form.origen||null, destino_nombre:form.destino||null,
-        observaciones:form.observaciones||""
+        observaciones:form.observaciones||"",
+        factura_numero:form.factura_numero||null,
+        created_at:fechaISO
       });
       const upsertItem = async (sucId, delta) => {
         if (!sucId) return;
@@ -337,6 +340,22 @@ export default function App() {
     } catch(err) { showToast("Error: "+err.message,"error"); }
   };
 
+
+  const editMovimiento = async (id, data) => {
+    try {
+      await sb.patch("movimientos", id, data);
+      await loadAll();
+      showToast("Movimiento actualizado");
+    } catch(err) { showToast("Error: "+err.message,"error"); }
+  };
+
+  const deleteMovimiento = async (id) => {
+    try {
+      await sb.delete("movimientos", id);
+      await loadAll();
+      showToast("Movimiento eliminado");
+    } catch(err) { showToast("Error: "+err.message,"error"); }
+  };
 
   const exportarExcel = () => {
     // Get current tab data
@@ -457,7 +476,7 @@ export default function App() {
         {tab==="home"       && <HomeTab inventario={inventario} movimientos={movimientos} sucMap={sucMap} sucursales={sucursales} setTab={setTab} loading={loading}/>}
         {tab==="nuevo"      && <NuevoTab sucursales={sucursales.map(s=>s.nombre)} onSubmit={addMovimiento} showToast={showToast} inventario={inventario} sucByName={sucByName}/>}
         {tab==="inventario" && <InvTab inventario={inventario} sucursales={sucursales} sucMap={sucMap} onSave={saveArticulo} onDelete={deleteArticulo} loading={loading}/>}
-        {tab==="historial"  && <HistTab movimientos={movimientos} loading={loading}/>}
+        {tab==="historial"  && <HistTab movimientos={movimientos} loading={loading} onEditMov={editMovimiento} onDeleteMov={deleteMovimiento}/>}
         {tab==="buscar"     && <BuscarTab inventario={inventario} sucMap={sucMap}/>}
         {tab==="config"     && <ConfigTab sucursales={sucursales} inventario={inventario} onAdd={addSucursal} onRefresh={loadAll}/>}
       </div>
@@ -762,7 +781,7 @@ function ArticuloBuscador({ sucursalNombre, inventario, sucByName, value, onChan
 
 
 function NuevoTab({ sucursales, onSubmit, showToast, inventario, sucByName }) {
-  const initForm = { tipo:"compra_directa",origen:"",destino:"",fase:"salida",observaciones:"",razon_baja:"Dañado/Roto" };
+  const initForm = { tipo:"compra_directa",origen:"",destino:"",fase:"salida",observaciones:"",razon_baja:"Dañado/Roto",factura_numero:"",factura_fecha:new Date().toISOString().split("T")[0] };
   const initItem = { articulo:"",cantidad:"1",categoria:"Maquinaria de Cocina",marca:"",estado:"Bueno",codigo:"" };
   const [form, setForm] = useState(initForm);
   const [currentItem, setCurrentItem] = useState(initItem);
@@ -808,7 +827,7 @@ function NuevoTab({ sucursales, onSubmit, showToast, inventario, sucByName }) {
     setSaving(true);
     let allOk = true;
     for (const item of items) {
-      const payload = { ...form, ...item };
+      const payload = { ...form, ...item, factura_numero:form.factura_numero||"", factura_fecha:form.factura_fecha };
       const ok = await onSubmit(payload);
       if (!ok) { allOk = false; break; }
     }
@@ -821,6 +840,7 @@ function NuevoTab({ sucursales, onSubmit, showToast, inventario, sucByName }) {
       <div style={{ width:70,height:70,background:"#14532d",borderRadius:"50%",display:"flex",alignItems:"center",justifyContent:"center" }}><I n="check" s={34}/></div>
       <p style={{ fontSize:20,fontWeight:700,color:"#22c55e",fontFamily:"'Space Grotesk',sans-serif" }}>¡{items.length} artículo{items.length!==1?"s":""} guardado{items.length!==1?"s":""}!</p>
       <p style={{ fontSize:13,color:"#6b7280" }}>Inventario actualizado en todos los dispositivos</p>
+      {form.factura_numero&&<p style={{ fontSize:12,color:"#60a5fa",fontWeight:600 }}>📄 Factura #{form.factura_numero}</p>}
     </div>
   );
 
@@ -864,6 +884,16 @@ function NuevoTab({ sucursales, onSubmit, showToast, inventario, sucByName }) {
         {needsOrigen&&(<div className="field"><label>{form.tipo==="baja"?"Sucursal":"Origen"} {errs.origen&&<span style={{ color:"#ef4444" }}>— {errs.origen}</span>}</label><select value={form.origen} onChange={e=>{ setF("origen",e.target.value); setItems([]); }}><option value="">Seleccionar...</option>{sucursales.filter(s=>s!=="Almacén Principal").map(s=><option key={s} value={s}>{s}</option>)}</select></div>)}
         {needsDestino&&(<div className="field"><label>Destino {errs.destino&&<span style={{ color:"#ef4444" }}>— {errs.destino}</span>}</label><select value={form.destino} onChange={e=>{ setF("destino",e.target.value); setItems([]); }}><option value="">Seleccionar...</option>{sucursales.filter(s=>(form.tipo==="traslado_tes"||form.tipo==="traslado_directo")?s!=="Almacén Principal"&&s!==form.origen:s!==form.origen).map(s=><option key={s} value={s}>{s}</option>)}</select></div>)}
         <div className="field"><label>Observaciones generales</label><input type="text" placeholder="Opcional..." value={form.observaciones} onChange={e=>setF("observaciones",e.target.value)}/></div>
+        <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:12 }}>
+          <div className="field">
+            <label>N° Factura</label>
+            <input type="text" placeholder="Opcional" value={form.factura_numero} onChange={e=>setF("factura_numero",e.target.value)}/>
+          </div>
+          <div className="field">
+            <label>Fecha</label>
+            <input type="date" value={form.factura_fecha} onChange={e=>setF("factura_fecha",e.target.value)} style={{ colorScheme:"dark" }}/>
+          </div>
+        </div>
         {form.tipo==="baja"&&(<div className="field"><label>Razón de Baja</label><select value={form.razon_baja} onChange={e=>setF("razon_baja",e.target.value)}>{RAZONES_BAJA.map(r=><option key={r} value={r}>{r}</option>)}</select></div>)}
       </div>
 
@@ -1011,9 +1041,10 @@ function ArticuloModal({ sucNombre, item, onSave, onClose }) {
 }
 
 // ─── HISTORIAL ────────────────────────────────────────────────
-function HistTab({ movimientos, loading }) {
+function HistTab({ movimientos, loading, onEditMov, onDeleteMov }) {
   const [filtTipo, setFiltTipo] = useState("");
   const [filtSuc, setFiltSuc]   = useState("");
+  const [editModal, setEditModal] = useState(null);
   const tipoL = { compra_directa:"Compra Directa",compra_tes:"Compra → Almacén",traslado_directo:"Traslado Directo",traslado_tes:"Traslado por Almacén",baja:"Baja de Artículo" };
   const faseL = { entrada:"Entrada a Almacén",salida:"Salida de Almacén" };
   const allSucs = [...new Set(movimientos.flatMap(m=>[m.origen_nombre,m.destino_nombre].filter(Boolean)))].sort();
