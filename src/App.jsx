@@ -1044,53 +1044,115 @@ function ArticuloModal({ sucNombre, item, onSave, onClose }) {
 
 // ─── HISTORIAL ────────────────────────────────────────────────
 function HistTab({ movimientos, loading, onEditMov, onDeleteMov }) {
-  const [filtTipo, setFiltTipo] = useState("");
-  const [filtSuc, setFiltSuc]   = useState("");
+  const [buscar, setBuscar] = useState("");
+  const [filtFecha, setFiltFecha] = useState("");
   const [editModal, setEditModal] = useState(null);
+  const [expandidos, setExpandidos] = useState({});
+
   const tipoL = { compra_directa:"Compra Directa",compra_tes:"Compra → Almacén",traslado_directo:"Traslado Directo",traslado_tes:"Traslado por Almacén",baja:"Baja de Artículo" };
   const faseL = { entrada:"Entrada a Almacén",salida:"Salida de Almacén" };
-  const allSucs = [...new Set(movimientos.flatMap(m=>[m.origen_nombre,m.destino_nombre].filter(Boolean)))].sort();
-  const filtered = movimientos.filter(m=>{ if (filtTipo&&m.tipo!==filtTipo) return false; if (filtSuc&&m.origen_nombre!==filtSuc&&m.destino_nombre!==filtSuc) return false; return true; });
-  const fmt = iso=>{ const d=new Date(iso); return d.toLocaleDateString("es-DO",{day:"2-digit",month:"short",year:"numeric"})+" "+d.toLocaleTimeString("es-DO",{hour:"2-digit",minute:"2-digit"}); };
+  const fmt = iso=>{ const d=new Date(iso); return d.toLocaleDateString("es-DO",{day:"2-digit",month:"short",year:"numeric"}); };
+  const fmtHora = iso=>{ const d=new Date(iso); return d.toLocaleTimeString("es-DO",{hour:"2-digit",minute:"2-digit"}); };
+
+  // Group movimientos by (factura_numero+fecha+tipo+origen+destino) or individual if no factura
+  const grupos = {};
+  movimientos.forEach(m => {
+    const fecha = m.created_at ? m.created_at.split("T")[0] : "";
+    const key = m.factura_numero
+      ? `factura_${m.factura_numero}_${fecha}_${m.tipo}_${m.origen_nombre||""}_${m.destino_nombre||""}`
+      : `mov_${m.id}`;
+    if (!grupos[key]) grupos[key] = { key, items:[], factura_numero:m.factura_numero||null, fecha, tipo:m.tipo, fase:m.fase, origen:m.origen_nombre, destino:m.destino_nombre, created_at:m.created_at };
+    grupos[key].items.push(m);
+  });
+
+  const gruposArr = Object.values(grupos).sort((a,b)=>new Date(b.created_at)-new Date(a.created_at));
+
+  // Filter
+  const filtered = gruposArr.filter(g=>{
+    const q = buscar.toLowerCase();
+    if (q) {
+      const matchFact = g.factura_numero&&g.factura_numero.toLowerCase().includes(q);
+      const matchArt = g.items.some(m=>m.articulo?.toLowerCase().includes(q));
+      const matchSuc = (g.origen||"").toLowerCase().includes(q)||(g.destino||"").toLowerCase().includes(q);
+      if (!matchFact&&!matchArt&&!matchSuc) return false;
+    }
+    if (filtFecha && !g.fecha.startsWith(filtFecha)) return false;
+    return true;
+  });
+
+  const toggle = (key) => setExpandidos(p=>({...p,[key]:!p[key]}));
+
   return (
-    <div style={{ display:"flex",flexDirection:"column",gap:14 }}>
-      <div className="card" style={{ padding:14 }}>
-        <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:10 }}>
-          <div className="field"><label>Tipo</label><select value={filtTipo} onChange={e=>setFiltTipo(e.target.value)}><option value="">Todos</option>{TIPOS.map(t=><option key={t.id} value={t.id}>{t.label}</option>)}</select></div>
-          <div className="field"><label>Sucursal</label><select value={filtSuc} onChange={e=>setFiltSuc(e.target.value)}><option value="">Todas</option>{allSucs.map(s=><option key={s} value={s}>{s}</option>)}</select></div>
+    <div style={{ display:"flex",flexDirection:"column",gap:12 }}>
+      {/* Search bar */}
+      <div style={{ display:"grid",gridTemplateColumns:"1fr auto",gap:10 }}>
+        <div style={{ position:"relative" }}>
+          <div style={{ position:"absolute",left:13,top:"50%",transform:"translateY(-50%)",color:"#6b7280",pointerEvents:"none" }}><I n="search" s={16}/></div>
+          <input type="text" placeholder="Buscar factura, artículo, sucursal..." value={buscar} onChange={e=>setBuscar(e.target.value)}
+            style={{ background:"#1a2235",border:"1.5px solid #252f42",borderRadius:10,color:"#e2e8f0",padding:"10px 13px 10px 38px",fontSize:13,fontFamily:"inherit",width:"100%",outline:"none" }}
+            onFocus={e=>e.target.style.borderColor="#f59e0b"} onBlur={e=>e.target.style.borderColor="#252f42"}/>
+          {buscar&&<button onClick={()=>setBuscar("")} style={{ position:"absolute",right:10,top:"50%",transform:"translateY(-50%)",background:"none",border:"none",color:"#6b7280",cursor:"pointer",fontSize:16 }}>×</button>}
         </div>
+        <input type="month" value={filtFecha} onChange={e=>setFiltFecha(e.target.value)}
+          style={{ background:"#1a2235",border:"1.5px solid #252f42",borderRadius:10,color:"#e2e8f0",padding:"10px 12px",fontSize:13,fontFamily:"inherit",outline:"none",colorScheme:"dark",minWidth:130 }}/>
       </div>
-      <div style={{ fontSize:12,color:"#6b7280" }}>{filtered.length} movimiento{filtered.length!==1?"s":""}</div>
-      {loading?<div style={{ display:"flex",justifyContent:"center",padding:40 }}><Spin size={32}/></div>
-      :filtered.length===0?<div className="card empty"><div style={{ fontSize:36,marginBottom:10 }}>📋</div><p>Sin movimientos</p></div>
-      :filtered.map((m,i)=>{
-        const tipo=TIPOS.find(t=>t.id===m.tipo);
+
+      <div style={{ fontSize:12,color:"#6b7280" }}>{filtered.length} registro{filtered.length!==1?"s":""} · {filtered.reduce((s,g)=>s+g.items.length,0)} artículo{filtered.reduce((s,g)=>s+g.items.length,0)!==1?"s":""}</div>
+
+      {loading ? <div style={{ display:"flex",justifyContent:"center",padding:40 }}><Spin size={32}/></div>
+      : filtered.length===0 ? <div className="card empty"><div style={{ fontSize:36,marginBottom:10 }}>📋</div><p>Sin registros</p></div>
+      : filtered.map(g=>{
+        const tipo = g.items[0] ? TIPOS.find(t=>t.id===g.tipo) : null;
+        const expandido = expandidos[g.key];
+        const totalUnd = g.items.reduce((s,m)=>s+(m.cantidad||0),0);
         return (
-          <div key={m.id||i} className="card" style={{ padding:14 }}>
-            <div style={{ display:"flex",gap:12,alignItems:"flex-start" }}>
+          <div key={g.key} className="card" style={{ padding:0,overflow:"hidden" }}>
+            {/* Header */}
+            <div onClick={()=>toggle(g.key)} style={{ padding:"14px 14px 12px",cursor:"pointer",display:"flex",gap:12,alignItems:"flex-start" }}>
               <div style={{ width:42,height:42,background:"#1a2235",borderRadius:10,display:"flex",alignItems:"center",justifyContent:"center",fontSize:20,flexShrink:0 }}>{tipo?.icon||"📋"}</div>
               <div style={{ flex:1,minWidth:0 }}>
                 <div style={{ display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:8 }}>
-                  <div style={{ fontSize:14,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",flex:1 }}>{m.articulo}</div>
-                  <div style={{ background:"#f59e0b18",color:"#f59e0b",border:"1px solid #f59e0b30",borderRadius:8,padding:"2px 10px",fontSize:13,fontWeight:700,flexShrink:0 }}>{m.cantidad} und.</div>
+                  <div style={{ fontSize:14,fontWeight:700,color:"#e2e8f0" }}>
+                    {g.factura_numero ? `📄 Factura #${g.factura_numero}` : tipoL[g.tipo]||g.tipo}
+                  </div>
+                  <div style={{ display:"flex",alignItems:"center",gap:6,flexShrink:0 }}>
+                    <span style={{ background:"#f59e0b18",color:"#f59e0b",border:"1px solid #f59e0b30",borderRadius:8,padding:"2px 8px",fontSize:12,fontWeight:700 }}>{totalUnd} und.</span>
+                    <span style={{ color:"#6b7280",fontSize:16 }}>{expandido?"▲":"▼"}</span>
+                  </div>
                 </div>
-                <div style={{ fontSize:12,color:"#94a3b8",marginTop:3 }}>{tipoL[m.tipo]}{m.fase?` · ${faseL[m.fase]}`:""}</div>
-                <div style={{ fontSize:11,color:"#6b7280",marginTop:5,display:"flex",flexWrap:"wrap",gap:"4px 14px" }}>
-                  {m.origen_nombre&&<span>De: <b style={{ color:"#94a3b8" }}>{m.origen_nombre}</b></span>}
-                  {m.destino_nombre&&<span>A: <b style={{ color:"#94a3b8" }}>{m.destino_nombre}</b></span>}
-                </div>
-                {m.factura_numero&&<div style={{ fontSize:11,color:"#60a5fa",marginTop:4,fontWeight:600 }}>📄 Factura #{m.factura_numero}</div>}
-                {m.observaciones&&<div style={{ fontSize:11,color:"#4b5563",marginTop:4,fontStyle:"italic" }}>"{m.observaciones}"</div>}
-                <div style={{ fontSize:11,color:"#374151",marginTop:6 }}>{fmt(m.created_at)}</div>
-                <div style={{ display:"flex",gap:8,marginTop:10 }}>
-                  <button className="btn ghost" style={{ flex:1,padding:"6px",fontSize:11 }} onClick={()=>setEditModal(m)}>✏️ Editar</button>
-                  <button className="btn danger" style={{ flex:1,padding:"6px",fontSize:11 }} onClick={()=>{ if(window.confirm("¿Eliminar este movimiento?")) onDeleteMov(m.id); }}>🗑️ Eliminar</button>
+                {g.factura_numero&&<div style={{ fontSize:12,color:"#94a3b8",marginTop:2 }}>{tipoL[g.tipo]}{g.fase?` · ${faseL[g.fase]}`:""}</div>}
+                <div style={{ fontSize:11,color:"#6b7280",marginTop:4,display:"flex",flexWrap:"wrap",gap:"4px 12px" }}>
+                  {g.origen&&<span>De: <b style={{ color:"#94a3b8" }}>{g.origen}</b></span>}
+                  {g.destino&&<span>A: <b style={{ color:"#94a3b8" }}>{g.destino}</b></span>}
+                  <span>{fmt(g.created_at)} · {fmtHora(g.created_at)}</span>
+                  <span style={{ color:"#f59e0b" }}>{g.items.length} artículo{g.items.length!==1?"s":""}</span>
                 </div>
               </div>
             </div>
+
+            {/* Expandido */}
+            {expandido&&(
+              <div style={{ borderTop:"1px solid #1a2235",padding:"10px 14px 14px" }}>
+                {g.items.map((m,i)=>(
+                  <div key={m.id||i} style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 0",borderBottom:i<g.items.length-1?"1px solid #1a2235":"none" }}>
+                    <div style={{ flex:1,minWidth:0 }}>
+                      <div style={{ fontSize:13,fontWeight:600,color:"#e2e8f0" }}>{m.articulo}</div>
+                      <div style={{ fontSize:11,color:"#6b7280",marginTop:2 }}>{m.categoria}{m.marca&&m.marca!=="S/N"?` · ${m.marca}`:""}</div>
+                      {m.observaciones&&<div style={{ fontSize:11,color:"#4b5563",fontStyle:"italic",marginTop:2 }}>"{m.observaciones}"</div>}
+                    </div>
+                    <div style={{ display:"flex",alignItems:"center",gap:10,flexShrink:0 }}>
+                      <span style={{ fontSize:14,fontWeight:700,color:"#f59e0b" }}>{m.cantidad} und.</span>
+                      <button className="btn ghost" style={{ padding:"4px 8px",fontSize:11 }} onClick={()=>setEditModal(m)}>✏️</button>
+                      <button className="btn danger" style={{ padding:"4px 8px",fontSize:11 }} onClick={()=>{ if(window.confirm("¿Eliminar?")) onDeleteMov(m.id); }}>🗑️</button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         );
       })}
+
       {editModal && (
         <EditMovModal
           mov={editModal}
@@ -1099,45 +1161,6 @@ function HistTab({ movimientos, loading, onEditMov, onDeleteMov }) {
         />
       )}
     </div>
-  );
-}
-
-function EditMovModal({ mov, onSave, onClose }) {
-  const [form, setForm] = useState({
-    articulo: mov.articulo||"",
-    cantidad: mov.cantidad||1,
-    observaciones: mov.observaciones||"",
-    factura_numero: mov.factura_numero||"",
-    factura_fecha: mov.created_at ? mov.created_at.split("T")[0] : new Date().toISOString().split("T")[0],
-    estado: mov.estado||"Bueno",
-  });
-  const set = (k,v) => setForm(p=>({...p,[k]:v}));
-  return (
-    <Modal title="Editar Movimiento" onClose={onClose}>
-      <div style={{ display:"flex",flexDirection:"column",gap:13 }}>
-        <div className="field"><label>Artículo</label><input type="text" value={form.articulo} onChange={e=>set("articulo",e.target.value)}/></div>
-        <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:12 }}>
-          <div className="field"><label>Cantidad</label><input type="number" min="1" value={form.cantidad} onChange={e=>set("cantidad",e.target.value)}/></div>
-          <div className="field"><label>Estado</label><select value={form.estado} onChange={e=>set("estado",e.target.value)}>{ESTADOS.map(s=><option key={s} value={s}>{s}</option>)}</select></div>
-        </div>
-        <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:12 }}>
-          <div className="field"><label>N° Factura</label><input type="text" placeholder="Opcional" value={form.factura_numero} onChange={e=>set("factura_numero",e.target.value)}/></div>
-          <div className="field"><label>Fecha</label><input type="date" value={form.factura_fecha} onChange={e=>set("factura_fecha",e.target.value)} style={{ colorScheme:"dark" }}/></div>
-        </div>
-        <div className="field"><label>Observaciones</label><input type="text" placeholder="Opcional..." value={form.observaciones} onChange={e=>set("observaciones",e.target.value)}/></div>
-        <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginTop:4 }}>
-          <button className="btn ghost" onClick={onClose}>Cancelar</button>
-          <button className="btn gold" onClick={()=>onSave(mov.id, {
-            articulo: form.articulo,
-            cantidad: Number(form.cantidad)||1,
-            observaciones: form.observaciones||"",
-            factura_numero: form.factura_numero||null,
-            created_at: new Date(form.factura_fecha + "T12:00:00").toISOString(),
-            estado: form.estado,
-          })}>Guardar</button>
-        </div>
-      </div>
-    </Modal>
   );
 }
 
