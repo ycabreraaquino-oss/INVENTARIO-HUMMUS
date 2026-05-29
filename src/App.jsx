@@ -289,6 +289,8 @@ export default function App() {
           await sb.patch("inventario", existing.id, { cantidad:newQty, updated_at:new Date().toISOString() });
         } else if (delta > 0) {
           await sb.post("inventario", { sucursal_id:sucId, articulo:form.articulo, codigo:form.codigo||"", categoria:form.categoria||"Operativos", cantidad:delta, marca:form.marca||"S/N", estado:form.estado||"Bueno" });
+        } else if (delta < 0) {
+          showToast(`⚠ "${form.articulo}" no estaba en el origen — registrado sin descontar`, "warning");
         }
       };
       if (form.tipo==="compra_directa")  { await upsertItem(destinoId, qty); }
@@ -881,7 +883,7 @@ function NuevoTab({ sucursales, onSubmit, showToast, inventario, sucByName }) {
       {/* Origen / Destino */}
       <div className="card" style={{ display:"flex",flexDirection:"column",gap:12 }}>
         <p className="st">Ruta</p>
-        {needsOrigen&&(<div className="field"><label>{form.tipo==="baja"?"Sucursal":"Origen"} {errs.origen&&<span style={{ color:"#ef4444" }}>— {errs.origen}</span>}</label><select value={form.origen} onChange={e=>{ setF("origen",e.target.value); setItems([]); }}><option value="">Seleccionar...</option>{sucursales.filter(s=>s!=="Almacén Principal").map(s=><option key={s} value={s}>{s}</option>)}</select></div>)}
+        {needsOrigen&&(<div className="field"><label>{form.tipo==="baja"?"Sucursal":"Origen"} {errs.origen&&<span style={{ color:"#ef4444" }}>— {errs.origen}</span>}</label><select value={form.origen} onChange={e=>{ setF("origen",e.target.value); setItems([]); }}><option value="">Seleccionar...</option>{(form.tipo==="baja"?sucursales:sucursales.filter(s=>s!=="Almacén Principal")).map(s=><option key={s} value={s}>{s}</option>)}</select></div>)}
         {needsDestino&&(<div className="field"><label>Destino {errs.destino&&<span style={{ color:"#ef4444" }}>— {errs.destino}</span>}</label><select value={form.destino} onChange={e=>{ setF("destino",e.target.value); setItems([]); }}><option value="">Seleccionar...</option>{sucursales.filter(s=>(form.tipo==="traslado_tes"||form.tipo==="traslado_directo")?s!=="Almacén Principal"&&s!==form.origen:s!==form.origen).map(s=><option key={s} value={s}>{s}</option>)}</select></div>)}
         <div className="field"><label>Observaciones generales</label><input type="text" placeholder="Opcional..." value={form.observaciones} onChange={e=>setF("observaciones",e.target.value)}/></div>
         <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:12 }}>
@@ -1077,13 +1079,65 @@ function HistTab({ movimientos, loading, onEditMov, onDeleteMov }) {
                   {m.origen_nombre&&<span>De: <b style={{ color:"#94a3b8" }}>{m.origen_nombre}</b></span>}
                   {m.destino_nombre&&<span>A: <b style={{ color:"#94a3b8" }}>{m.destino_nombre}</b></span>}
                 </div>
+                {m.factura_numero&&<div style={{ fontSize:11,color:"#60a5fa",marginTop:4,fontWeight:600 }}>📄 Factura #{m.factura_numero}</div>}
+                {m.observaciones&&<div style={{ fontSize:11,color:"#4b5563",marginTop:4,fontStyle:"italic" }}>"{m.observaciones}"</div>}
                 <div style={{ fontSize:11,color:"#374151",marginTop:6 }}>{fmt(m.created_at)}</div>
+                <div style={{ display:"flex",gap:8,marginTop:10 }}>
+                  <button className="btn ghost" style={{ flex:1,padding:"6px",fontSize:11 }} onClick={()=>setEditModal(m)}>✏️ Editar</button>
+                  <button className="btn danger" style={{ flex:1,padding:"6px",fontSize:11 }} onClick={()=>{ if(window.confirm("¿Eliminar este movimiento?")) onDeleteMov(m.id); }}>🗑️ Eliminar</button>
+                </div>
               </div>
             </div>
           </div>
         );
       })}
+      {editModal && (
+        <EditMovModal
+          mov={editModal}
+          onSave={(id, data)=>{ onEditMov(id, data); setEditModal(null); }}
+          onClose={()=>setEditModal(null)}
+        />
+      )}
     </div>
+  );
+}
+
+function EditMovModal({ mov, onSave, onClose }) {
+  const [form, setForm] = useState({
+    articulo: mov.articulo||"",
+    cantidad: mov.cantidad||1,
+    observaciones: mov.observaciones||"",
+    factura_numero: mov.factura_numero||"",
+    factura_fecha: mov.created_at ? mov.created_at.split("T")[0] : new Date().toISOString().split("T")[0],
+    estado: mov.estado||"Bueno",
+  });
+  const set = (k,v) => setForm(p=>({...p,[k]:v}));
+  return (
+    <Modal title="Editar Movimiento" onClose={onClose}>
+      <div style={{ display:"flex",flexDirection:"column",gap:13 }}>
+        <div className="field"><label>Artículo</label><input type="text" value={form.articulo} onChange={e=>set("articulo",e.target.value)}/></div>
+        <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:12 }}>
+          <div className="field"><label>Cantidad</label><input type="number" min="1" value={form.cantidad} onChange={e=>set("cantidad",e.target.value)}/></div>
+          <div className="field"><label>Estado</label><select value={form.estado} onChange={e=>set("estado",e.target.value)}>{ESTADOS.map(s=><option key={s} value={s}>{s}</option>)}</select></div>
+        </div>
+        <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:12 }}>
+          <div className="field"><label>N° Factura</label><input type="text" placeholder="Opcional" value={form.factura_numero} onChange={e=>set("factura_numero",e.target.value)}/></div>
+          <div className="field"><label>Fecha</label><input type="date" value={form.factura_fecha} onChange={e=>set("factura_fecha",e.target.value)} style={{ colorScheme:"dark" }}/></div>
+        </div>
+        <div className="field"><label>Observaciones</label><input type="text" placeholder="Opcional..." value={form.observaciones} onChange={e=>set("observaciones",e.target.value)}/></div>
+        <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginTop:4 }}>
+          <button className="btn ghost" onClick={onClose}>Cancelar</button>
+          <button className="btn gold" onClick={()=>onSave(mov.id, {
+            articulo: form.articulo,
+            cantidad: Number(form.cantidad)||1,
+            observaciones: form.observaciones||"",
+            factura_numero: form.factura_numero||null,
+            created_at: new Date(form.factura_fecha + "T12:00:00").toISOString(),
+            estado: form.estado,
+          })}>Guardar</button>
+        </div>
+      </div>
+    </Modal>
   );
 }
 
